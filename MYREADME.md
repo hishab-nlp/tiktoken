@@ -2,7 +2,7 @@
 This fork version is modified version of tiktoken for training from scratch, encoding support for Bangla language and so on.
 
 ## Installation
-Install the dependencies using `pip install -r requirements.txt`
+Install the dependencies using `pip install tiktoken blobfile loguru`
 
 ## Train
 To train tiktoken from scratch
