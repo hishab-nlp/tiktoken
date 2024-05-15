@@ -5,15 +5,14 @@ This fork version is modified version of tiktoken for training from scratch, enc
 Install the dependencies using `pip install tiktoken blobfile loguru`
 
 ## Train
-To train tiktoken from scratch
+To train tiktoken from scratch check the scripts and update the pretokenized pattern and then run:
 
 ```bash
 cd scripts
 python train_bpe.py \
---data_path "path/mytextfiles" \
---vocab_size 1000 \
---pretokenizer_pattern "(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\w\p{N}]?\w+|\p{N}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+" \
---output_file "path/mytokenizer.model" \
+--data_path "../data" \
+--vocab_size 500 \
+--output_file "../data/mytokenizer.model" \
 --visualise "simple"
 ```
 
