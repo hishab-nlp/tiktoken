@@ -14,6 +14,7 @@ Installing from source requires rust compiler and rust setup tools.
     ```
 - Install rust setup tools by `pip install setuptools-rust`
 - Now install from source: `pip install -e .`
+- Install blobfile, loguru also
 
 ## Train
 To train tiktoken from scratch check the scripts and update the pretokenized pattern and then run:
