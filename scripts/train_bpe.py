@@ -1,4 +1,5 @@
 import glob
+import time
 from tqdm import tqdm
 from typing import List
 from loguru import logger
@@ -32,6 +33,7 @@ def main():
     logger.info(f"first 100 chars from data: {data[:100]}")
     logger.info("Text loading in memory done!")
     logger.info("Training start..............")
+    start_time = time.time()
     mergeable_ranks = bpe_train(
         data=data,
         vocab_size=parser.vocab_size,
@@ -39,6 +41,7 @@ def main():
         visualise=parser.visualise
     )
     logger.info("Training has been completed!")
+    logger.info(f"total training time: {(time.time() - start_time) / 60} min")
 
     dump_tiktoken_bpe(
         mergeable_ranks,
