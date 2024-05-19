@@ -20,8 +20,7 @@ Installing from source requires rust compiler and rust setup tools.
 To train tiktoken from scratch check the scripts and update the pretokenized pattern and then run:
 
 ```bash
-cd scripts
-python train_bpe.py \
+python scripts/train_bpe.py \
 --data_path "../data" \
 --vocab_size 500 \
 --output_file "../data/mytokenizer.model" \
