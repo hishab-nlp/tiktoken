@@ -6,6 +6,7 @@ import regex
 
 import tiktoken
 
+from tqdm.auto import tqdm
 
 class SimpleBytePairEncoding:
     def __init__(self, *, pat_str: str, mergeable_ranks: dict[bytes, int]) -> None:
@@ -130,17 +131,20 @@ def bpe_train(
     #     [b'H', b'e', b'l', b'l', b'o'],
     #     [b' ', b'w', b'o', b'r', b'l', b'd']
     # ]
+    
     words: list[list[bytes]] = [
         [bytes([b]) for b in word.encode("utf-8")] for word in regex.findall(pat_str, data)
     ]
-
+    
     # Now, use our data to figure out which merges we should make
-    while len(ranks) < vocab_size:
-        # Find the most common pair. This will become our next token
-        stats = collections.Counter()
+    
+    for _ in tqdm(range(2**8,vocab_size)):
+    # while len(ranks) < vocab_size:
+        all_pairs = []
         for piece in words:
-            for pair in zip(piece[:-1], piece[1:]):
-                stats[pair] += 1
+            all_pairs.extend(list(zip(piece[:-1], piece[1:])))
+        
+        stats = collections.Counter(all_pairs)
 
         most_common_pair = max(stats, key=lambda x: stats[x])
         token_bytes = most_common_pair[0] + most_common_pair[1]
@@ -152,19 +156,8 @@ def bpe_train(
         # to reflect our decision to make that pair into a new token.
         new_words = []
         for word in words:
-            new_word = []
-            i = 0
-            while i < len(word) - 1:
-                if (word[i], word[i + 1]) == most_common_pair:
-                    # We found our pair! Merge it
-                    new_word.append(token_bytes)
-                    i += 2
-                else:
-                    new_word.append(word[i])
-                    i += 1
-            if i == len(word) - 1:
-                new_word.append(word[i])
-            new_words.append(new_word)
+            new_word = b"[^]".join(word).replace(b"[^]".join(most_common_pair),b"".join(most_common_pair)).split(b"[^]")
+            new_words.append(new_word)  
         words = new_words
 
         # See the intermediate merges play out!
