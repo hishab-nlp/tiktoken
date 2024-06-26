@@ -7,6 +7,18 @@ import regex
 import tiktoken
 
 from tqdm.auto import tqdm
+from collections import Counter
+from itertools import chain
+
+
+def count_and_multiply(tuples_list, multipliers):
+    # Count the frequency of each tuple
+    frequency_counter = Counter(tuples_list)
+    
+    # Multiply the frequency with the corresponding multiplier
+    result = {tup: count * multipliers[i] for i, (tup, count) in enumerate(frequency_counter.items())}
+    
+    return result
 
 class SimpleBytePairEncoding:
     def __init__(self, *, pat_str: str, mergeable_ranks: dict[bytes, int]) -> None:
@@ -132,19 +144,41 @@ def bpe_train(
     #     [b' ', b'w', b'o', b'r', b'l', b'd']
     # ]
     
-    words: list[list[bytes]] = [
-        [bytes([b]) for b in word.encode("utf-8")] for word in regex.findall(pat_str, data)
-    ]
+    # words: list[list[bytes]] = [
+    #     [bytes([b]) for b in word.encode("utf-8")] for word in tqdm(regex.findall(pat_str, data))
+    # ]
+    
+    # words_tuple = [tuple(w) for w in words]
+    # words_unique = collections.Counter(words_tuple)
+    
+    words_unique = collections.Counter()
+    words = regex.findall(pat_str, data)
+
+    for word in tqdm(words):
+        words_unique[tuple([bytes([b]) for b in word.encode("utf-8")])]+= 1
+    
+    words = [list(w) for w in list(words_unique.keys())]
+    words_multiplier = list(words_unique.values())
+    change_index = collections.Counter()
+    all_pairs_ = []
+    all_multipliers_ = []
     
     # Now, use our data to figure out which merges we should make
     
     for _ in tqdm(range(2**8,vocab_size)):
-    # while len(ranks) < vocab_size:
-        all_pairs = []
-        for piece in words:
-            all_pairs.extend(list(zip(piece[:-1], piece[1:])))
+        for c,piece in enumerate(words):
+            if len(change_index)==0:
+                all_pairs_.append(list(zip(piece[:-1], piece[1:])))
+                all_multipliers_.append([words_multiplier[c]]*(len(piece)-1))
+            else:
+                if change_index[c]==-1:
+                    all_pairs_[c]=list(zip(piece[:-1], piece[1:]))
+                    all_multipliers_[c]=[words_multiplier[c]]*(len(piece)-1)
+                        
+        all_pairs=list(chain.from_iterable(all_pairs_))
+        all_multipliers=list(chain.from_iterable(all_multipliers_))
         
-        stats = collections.Counter(all_pairs)
+        stats = count_and_multiply(all_pairs, all_multipliers)
 
         most_common_pair = max(stats, key=lambda x: stats[x])
         token_bytes = most_common_pair[0] + most_common_pair[1]
@@ -154,11 +188,14 @@ def bpe_train(
 
         # Now merge that most common pair in all the words. That is, update our training data
         # to reflect our decision to make that pair into a new token.
-        new_words = []
-        for word in words:
-            new_word = b"[^]".join(word).replace(b"[^]".join(most_common_pair),b"".join(most_common_pair)).split(b"[^]")
-            new_words.append(new_word)  
-        words = new_words
+        
+        change_index = collections.Counter()
+        for cc,word in enumerate(words):
+            parent = b"[^]".join(word)
+            child = b"[^]".join(most_common_pair)
+            if child in parent:
+                words[cc] = parent.replace(child,b"".join(most_common_pair)).split(b"[^]")
+                change_index[cc]=-1
 
         # See the intermediate merges play out!
         if visualise:
