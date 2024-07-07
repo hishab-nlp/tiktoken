@@ -9,6 +9,19 @@ import tiktoken
 from tqdm.auto import tqdm
 from collections import Counter
 from itertools import chain
+import pickle
+import os
+
+import numpy as np
+
+def load_pkl(path):
+    with open(path, 'rb') as f:
+        data = pickle.load(f)
+    return data
+
+def save_pkl(data,path):
+    with open(path, 'wb') as f:
+        pickle.dump(data, f)
 
 
 def count_and_multiply(tuples_list, multipliers):
@@ -127,89 +140,180 @@ def bpe_encode(
     return tokens
 
 
+
 def bpe_train(
-    data: str, vocab_size: int, pat_str: str, visualise: Optional[str] = "colour"
+    data: str, vocab_size: int, pat_str: str, visualise: Optional[str] = "colour", resume: str = "no",word_select_threshold: float = 0.97, checkpoint_path: str = "checkpoints", save_every_n_steps: int = 2048
 ) -> dict[bytes, int]:
-    # First, add tokens for each individual byte value
-    if vocab_size < 2**8:
-        raise ValueError("vocab_size must be at least 256, so we can encode all bytes")
-    ranks = {}
-    for i in range(2**8):
-        ranks[bytes([i])] = i
-
-    # Splinter up our data into lists of bytes
-    # data = "Hello world"
-    # words = [
-    #     [b'H', b'e', b'l', b'l', b'o'],
-    #     [b' ', b'w', b'o', b'r', b'l', b'd']
-    # ]
     
-    # words: list[list[bytes]] = [
-    #     [bytes([b]) for b in word.encode("utf-8")] for word in tqdm(regex.findall(pat_str, data))
-    # ]
+    os.makedirs(checkpoint_path,exist_ok=True)
     
-    # words_tuple = [tuple(w) for w in words]
-    # words_unique = collections.Counter(words_tuple)
-    
-    words_unique = collections.Counter()
-    words = regex.findall(pat_str, data)
-
-    for word in tqdm(words):
-        words_unique[tuple([bytes([b]) for b in word.encode("utf-8")])]+= 1
-    
-    words = [list(w) for w in list(words_unique.keys())]
-    words_multiplier = list(words_unique.values())
-    change_index = collections.Counter()
-    all_pairs_ = []
-    all_multipliers_ = []
-    
-    # Now, use our data to figure out which merges we should make
-    
-    for _ in tqdm(range(2**8,vocab_size)):
-        for c,piece in enumerate(words):
-            if len(change_index)==0:
-                all_pairs_.append(list(zip(piece[:-1], piece[1:])))
-                all_multipliers_.append([words_multiplier[c]]*(len(piece)-1))
-            else:
-                if change_index[c]==-1:
-                    all_pairs_[c]=list(zip(piece[:-1], piece[1:]))
-                    all_multipliers_[c]=[words_multiplier[c]]*(len(piece)-1)
-                        
-        all_pairs=list(chain.from_iterable(all_pairs_))
-        all_multipliers=list(chain.from_iterable(all_multipliers_))
+    if resume=="no":
+        # First, add tokens for each individual byte value
+        if vocab_size < 2**8:
+            raise ValueError("vocab_size must be at least 256, so we can encode all bytes")
+        ranks = {}
+        for i in range(2**8):
+            ranks[bytes([i])] = i
         
-        stats = count_and_multiply(all_pairs, all_multipliers)
+        save_pkl(ranks,os.path.join(checkpoint_path,"ranks.pkl"))
 
-        most_common_pair = max(stats, key=lambda x: stats[x])
-        token_bytes = most_common_pair[0] + most_common_pair[1]
-        token = len(ranks)
-        # Add the new token!
-        ranks[token_bytes] = token
+        # Splinter up our data into lists of bytes
+        # data = "Hello world"
+        # words = [
+        #     [b'H', b'e', b'l', b'l', b'o'],
+        #     [b' ', b'w', b'o', b'r', b'l', b'd']
+        # ]
 
-        # Now merge that most common pair in all the words. That is, update our training data
-        # to reflect our decision to make that pair into a new token.
+        #############
+        words_unique = collections.Counter()
+        words = regex.findall(pat_str, data)
+        
+        for word in tqdm(words):
+            words_unique[tuple([bytes([b]) for b in word.encode("utf-8")])]+= 1
+        
+        words = [list(w) for w in list(words_unique.keys())]
+        words_multiplier = list(words_unique.values())
+        #############
+        
+        save_pkl(words,os.path.join(checkpoint_path,"words_init.pkl"))
+        
+        save_pkl(words_multiplier,os.path.join(checkpoint_path,"words_multiplier_init.pkl"))
+        
+        
+        words_multiplier_sorted=sorted(words_multiplier,reverse=True)
+        words_multiplier_sorted_cumsum = np.cumsum(words_multiplier_sorted)
+        words_multiplier_sorted_cumsum_norm=words_multiplier_sorted_cumsum/words_multiplier_sorted_cumsum[-1]
+        targeted_idx = len([i for i in words_multiplier_sorted_cumsum_norm if i<word_select_threshold])
+        threshold_frequency = words_multiplier_sorted[targeted_idx]
+        
+        words = [i for c,i in enumerate(words) if words_multiplier[c]>threshold_frequency]
+        words_multiplier = [i for i in words_multiplier if i>threshold_frequency]
+       
+        save_pkl(words,os.path.join(checkpoint_path,"words.pkl"))
+        save_pkl(words_multiplier,os.path.join(checkpoint_path,"words_multiplier.pkl"))
         
         change_index = collections.Counter()
-        for cc,word in enumerate(words):
-            parent = b"[^]".join(word)
-            child = b"[^]".join(most_common_pair)
-            if child in parent:
-                words[cc] = parent.replace(child,b"".join(most_common_pair)).split(b"[^]")
-                change_index[cc]=-1
+        all_pairs_ = []
+        all_multipliers_ = []
+        
+        save_pkl(change_index,os.path.join(checkpoint_path,"change_index.pkl"))
+        save_pkl(all_pairs_,os.path.join(checkpoint_path,"all_pairs_.pkl"))
+        save_pkl(all_multipliers_,os.path.join(checkpoint_path,"all_multipliers_.pkl"))
+        
+    else:
+        
+        ranks=load_pkl(os.path.join(checkpoint_path,"ranks.pkl"))
 
-        # See the intermediate merges play out!
-        if visualise:
-            print(f"The current most common pair is {most_common_pair[0]} + {most_common_pair[1]}")
-            print(f"So we made {token_bytes} our {len(ranks)}th token")
-            if visualise in ["colour", "color"]:
-                print("Now the first fifty words in our training data look like:")
-                visualise_tokens([token for word in words[:50] for token in word])
-            elif visualise == "simple":
-                print("Now the first twenty words in our training data look like:")
-                for word in words[:20]:
-                    print(word)
-            print("\n")
+        words=load_pkl(os.path.join(checkpoint_path,"words.pkl"))
+        
+        words_multiplier=load_pkl(os.path.join(checkpoint_path,"words_multiplier.pkl"))
+   
+        change_index=load_pkl(os.path.join(checkpoint_path,"change_index.pkl"))
 
+        all_pairs_=load_pkl(os.path.join(checkpoint_path,"all_pairs_.pkl"))
+
+        all_multipliers_=load_pkl(os.path.join(checkpoint_path,"all_multipliers_.pkl"))
+  
+        
+    # Now, use our data to figure out which merges we should make
+    
+    print("Total Words: ",len(words))
+    
+    
+    try:
+        for _ in tqdm(range(len(ranks),vocab_size)):
+            for c,piece in enumerate(words):
+                if len(change_index)==0:
+                    all_pairs_.append(list(zip(piece[:-1], piece[1:])))
+                    all_multipliers_.append([words_multiplier[c]]*(len(piece)-1))
+                else:
+                    if change_index[c]==-1:
+                        all_pairs_[c]=list(zip(piece[:-1], piece[1:]))
+                        all_multipliers_[c]=[words_multiplier[c]]*(len(piece)-1)
+
+                                            
+            all_pairs=list(chain.from_iterable(all_pairs_))
+            all_multipliers=list(chain.from_iterable(all_multipliers_))
+            
+            stats = count_and_multiply(all_pairs, all_multipliers)
+            
+            most_common_pair = max(stats, key=lambda x: stats[x])
+            token_bytes = most_common_pair[0] + most_common_pair[1]
+            
+            # if ranks.get(token_bytes,None) is not None:
+            token = len(ranks)
+            # Add the new token!
+            ranks[token_bytes] = token
+            
+            
+
+            # Now merge that most common pair in all the words. That is, update our training data
+            # to reflect our decision to make that pair into a new token.
+            
+            change_index = collections.Counter()
+            for cc,word in enumerate(words):
+                parent = b']^['+b"[^]".join(word)+b']^['
+                child = b"[^]".join(most_common_pair)
+
+                flag=0
+                if child in parent:
+                    if b"[^]"+child+b"[^]" in parent:
+                        parent = parent.replace(b"[^]"+child+b"[^]",b"[^]"+token_bytes+b"[^]")
+                        flag=1
+                        
+                    if b"]^["+child+b"[^]" in parent:
+                        parent = parent.replace(b"]^["+child+b"[^]",b"]^["+token_bytes+b"[^]")
+                        flag=1
+                    
+                    if b"[^]"+child+b"]^[" in parent:
+                        parent = parent.replace(b"[^]"+child+b"]^[",b"[^]"+token_bytes+b"]^[")
+                        flag=1
+                    
+                    if b"]^["+child+b"]^[" in parent:
+                        parent = parent.replace(b"]^["+child+b"]^[",b"]^["+token_bytes+b"]^[")
+                        flag=1
+                    
+                if flag==1:
+                    words[cc]=parent[3:-3].split(b"[^]")
+                    change_index[cc]=-1
+
+            # See the intermediate merges play out!
+            if visualise:
+                print(f"The current most common pair is {most_common_pair[0]} + {most_common_pair[1]}")
+                try:
+                    print(f"So we made {token_bytes} our {len(ranks)}th token")
+                except:
+                    print(f"So we made {token_bytes.decode()} our {len(ranks)}th token")
+                
+                if visualise in ["colour", "color"]:
+                    print("Now the first fifty words in our training data look like:")
+                    visualise_tokens([token for word in words[:50] for token in word])
+                elif visualise == "simple":
+                    print("Now the first twenty words in our training data look like:")
+                    for word in words[:20]:
+                        print(word)
+                print("\n")
+                
+
+            if len(ranks)%save_every_n_steps==0:
+                
+                save_pkl(ranks,os.path.join(checkpoint_path,"ranks.pkl"))
+            
+                save_pkl(words,os.path.join(checkpoint_path,"words.pkl"))
+
+                save_pkl(words_multiplier,os.path.join(checkpoint_path,"words_multiplier.pkl"))
+                
+                save_pkl(change_index,os.path.join(checkpoint_path,"change_index.pkl"))
+
+                save_pkl(all_pairs_,os.path.join(checkpoint_path,"all_pairs_.pkl"))
+
+                save_pkl(all_multipliers_,os.path.join(checkpoint_path,"all_multipliers_.pkl"))
+
+    except Exception as e:
+        print(e) 
+        
+    ranks = dict(zip(list(ranks.keys()),[i for i in range(len(list(ranks.keys())))]))  
+         
     return ranks
 
 
